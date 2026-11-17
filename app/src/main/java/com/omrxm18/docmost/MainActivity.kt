@@ -36,6 +36,7 @@ import androidx.core.view.isVisible
 class MainActivity : ComponentActivity() {
     private lateinit var webView: WebView
     private lateinit var errorView: View
+    private lateinit var swipeRefresh: WebViewSwipeRefreshLayout
     private val startUrl = BuildConfig.DOCMOST_URL
 
     companion object {
@@ -94,6 +95,8 @@ class MainActivity : ComponentActivity() {
     private fun showError(show: Boolean) {
         errorView.isVisible = show
         webView.isVisible = !show
+        swipeRefresh.isEnabled = !show
+        if (show) swipeRefresh.isRefreshing = false
     }
 
     /** WebView reports extensions like ".pdf" as well as MIME types; the document pickers need MIME types. */
@@ -117,6 +120,17 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         webView = WebView(this)
+        swipeRefresh = WebViewSwipeRefreshLayout(this).apply {
+            webView = this@MainActivity.webView
+            addView(
+                this@MainActivity.webView,
+                FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT
+                )
+            )
+            setOnRefreshListener { this@MainActivity.webView.reload() }
+        }
         errorView = layoutInflater.inflate(R.layout.error_view, null, false)
         errorView.findViewById<Button>(R.id.retry_button).setOnClickListener {
             showError(false)
@@ -126,7 +140,7 @@ class MainActivity : ComponentActivity() {
         val container = FrameLayout(this).apply {
             setBackgroundColor(Color.WHITE) // color shown behind the status/nav bars
             addView(
-                webView,
+                swipeRefresh,
                 FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.MATCH_PARENT
@@ -174,6 +188,10 @@ class MainActivity : ComponentActivity() {
 
             override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
                 showError(false)
+            }
+
+            override fun onPageFinished(view: WebView, url: String) {
+                swipeRefresh.isRefreshing = false
             }
 
             override fun onReceivedError(
