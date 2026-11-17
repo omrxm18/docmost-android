@@ -29,23 +29,29 @@ import android.widget.FrameLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
-import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.biometric.BiometricManager
+import androidx.biometric.BiometricPrompt
+import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.isVisible
+import androidx.fragment.app.FragmentActivity
 
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
     private lateinit var webView: WebView
     private lateinit var errorView: View
+    private lateinit var lockView: View
     private lateinit var swipeRefresh: WebViewSwipeRefreshLayout
     private val startUrl = BuildConfig.DOCMOST_URL
+    private var locked = true
 
     companion object {
         private const val KEY_ERROR_VISIBLE = "error_visible"
+        private const val KEY_LOCKED = "locked"
     }
 
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
@@ -102,6 +108,42 @@ class MainActivity : ComponentActivity() {
         webView.isVisible = !show
         swipeRefresh.isEnabled = !show
         if (show) swipeRefresh.isRefreshing = false
+    }
+
+    private fun lock() {
+        locked = true
+        lockView.isVisible = true
+    }
+
+    private fun unlock() {
+        locked = false
+        lockView.isVisible = false
+    }
+
+    private fun promptBiometric() {
+        val authenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG or
+                BiometricManager.Authenticators.DEVICE_CREDENTIAL
+        if (BiometricManager.from(this).canAuthenticate(authenticators) != BiometricManager.BIOMETRIC_SUCCESS) {
+            // No biometrics or device credential set up: locking would make the app unusable.
+            unlock()
+            return
+        }
+
+        val prompt = BiometricPrompt(
+            this,
+            ContextCompat.getMainExecutor(this),
+            object : BiometricPrompt.AuthenticationCallback() {
+                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                    unlock()
+                }
+            }
+        )
+        val info = BiometricPrompt.PromptInfo.Builder()
+            .setTitle(getString(R.string.biometric_title))
+            .setSubtitle(getString(R.string.biometric_subtitle))
+            .setAllowedAuthenticators(authenticators)
+            .build()
+        prompt.authenticate(info)
     }
 
     private fun handleShareIntent() {
@@ -163,6 +205,10 @@ class MainActivity : ComponentActivity() {
             showError(false)
             webView.reload()
         }
+        lockView = layoutInflater.inflate(R.layout.lock_view, null, false)
+        lockView.findViewById<Button>(R.id.unlock_button).setOnClickListener {
+            promptBiometric()
+        }
 
         val container = FrameLayout(this).apply {
             setBackgroundColor(Color.WHITE) // color shown behind the status/nav bars
@@ -180,9 +226,18 @@ class MainActivity : ComponentActivity() {
                     ViewGroup.LayoutParams.MATCH_PARENT
                 )
             )
+            addView(
+                lockView,
+                FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT
+                )
+            )
         }
         setContentView(container)
         showError(savedInstanceState?.getBoolean(KEY_ERROR_VISIBLE, false) ?: false)
+        locked = savedInstanceState?.getBoolean(KEY_LOCKED, true) ?: true
+        lockView.isVisible = locked
 
         ViewCompat.setOnApplyWindowInsetsListener(container) { v, insets ->
             val bars = insets.getInsets(
@@ -287,9 +342,15 @@ class MainActivity : ComponentActivity() {
         handleShareIntent()
     }
 
+    override fun onResume() {
+        super.onResume()
+        if (locked) promptBiometric()
+    }
+
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         outState.putBoolean(KEY_ERROR_VISIBLE, errorView.isVisible)
+        outState.putBoolean(KEY_LOCKED, locked)
         webView.saveState(outState)
     }
 
@@ -297,6 +358,12 @@ class MainActivity : ComponentActivity() {
         // Write cookies to disk so the login survives the app being killed
         CookieManager.getInstance().flush()
         super.onPause()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        // Rotation recreates the activity; only backgrounding it should re-lock.
+        if (!isChangingConfigurations) lock()
     }
 
     override fun onDestroy() {

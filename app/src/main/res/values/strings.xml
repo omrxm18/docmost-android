@@ -8,4 +8,8 @@
     <string name="shared_content_title">Shared with Docmost</string>
     <string name="copy">Copy</string>
     <string name="copied">Copied to clipboard</string>
+    <string name="locked_message">Docmost is locked</string>
+    <string name="unlock">Unlock</string>
+    <string name="biometric_title">Unlock Docmost</string>
+    <string name="biometric_subtitle">Authenticate to view your pages</string>
 </resources>
