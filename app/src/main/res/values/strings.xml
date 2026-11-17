@@ -2,4 +2,7 @@
     <string name="app_name">Docmost</string>
     <string name="download_started">Download started</string>
     <string name="download_failed">Could not start download</string>
+    <string name="offline_title">Can’t reach Docmost</string>
+    <string name="offline_message">Check your connection or the server address, then try again.</string>
+    <string name="retry">Retry</string>
 </resources>

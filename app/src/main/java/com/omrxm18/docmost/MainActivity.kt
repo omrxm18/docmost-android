@@ -3,10 +3,12 @@ package com.omrxm18.docmost
 import android.app.DownloadManager
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
 import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
 import android.os.Environment
+import android.view.View
 import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.MimeTypeMap
@@ -14,9 +16,12 @@ import android.webkit.URLUtil
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebChromeClient.FileChooserParams
+import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -26,10 +31,16 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.net.toUri
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.isVisible
 
 class MainActivity : ComponentActivity() {
     private lateinit var webView: WebView
+    private lateinit var errorView: View
     private val startUrl = BuildConfig.DOCMOST_URL
+
+    companion object {
+        private const val KEY_ERROR_VISIBLE = "error_visible"
+    }
 
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
 
@@ -80,6 +91,11 @@ class MainActivity : ComponentActivity() {
         filePathCallback = null
     }
 
+    private fun showError(show: Boolean) {
+        errorView.isVisible = show
+        webView.isVisible = !show
+    }
+
     /** WebView reports extensions like ".pdf" as well as MIME types; the document pickers need MIME types. */
     private fun acceptTypes(params: FileChooserParams): Array<String> {
         val types = params.acceptTypes
@@ -101,6 +117,11 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         webView = WebView(this)
+        errorView = layoutInflater.inflate(R.layout.error_view, null, false)
+        errorView.findViewById<Button>(R.id.retry_button).setOnClickListener {
+            showError(false)
+            webView.reload()
+        }
 
         val container = FrameLayout(this).apply {
             setBackgroundColor(Color.WHITE) // color shown behind the status/nav bars
@@ -111,8 +132,16 @@ class MainActivity : ComponentActivity() {
                     ViewGroup.LayoutParams.MATCH_PARENT
                 )
             )
+            addView(
+                errorView,
+                FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT
+                )
+            )
         }
         setContentView(container)
+        showError(savedInstanceState?.getBoolean(KEY_ERROR_VISIBLE, false) ?: false)
 
         ViewCompat.setOnApplyWindowInsetsListener(container) { v, insets ->
             val bars = insets.getInsets(
@@ -141,6 +170,26 @@ class MainActivity : ComponentActivity() {
                 if (request.url.host == host) return false
                 startActivity(Intent(Intent.ACTION_VIEW, request.url))
                 return true
+            }
+
+            override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
+                showError(false)
+            }
+
+            override fun onReceivedError(
+                view: WebView,
+                request: WebResourceRequest,
+                error: WebResourceError
+            ) {
+                if (request.isForMainFrame) showError(true)
+            }
+
+            override fun onReceivedHttpError(
+                view: WebView,
+                request: WebResourceRequest,
+                errorResponse: WebResourceResponse
+            ) {
+                if (request.isForMainFrame && errorResponse.statusCode >= 500) showError(true)
             }
         }
 
@@ -188,6 +237,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
+        outState.putBoolean(KEY_ERROR_VISIBLE, errorView.isVisible)
         webView.saveState(outState)
     }
 
