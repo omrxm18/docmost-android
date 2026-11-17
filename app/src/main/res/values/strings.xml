@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">Docmost</string>
+    <string name="download_started">Download started</string>
+    <string name="download_failed">Could not start download</string>
 </resources>

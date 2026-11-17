@@ -1,26 +1,31 @@
 package com.omrxm18.docmost
 
+import android.app.DownloadManager
+import android.content.Context
+import android.content.Intent
+import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
-import android.content.Intent
-import android.webkit.MimeTypeMap
+import android.os.Environment
+import android.view.ViewGroup
 import android.webkit.CookieManager
+import android.webkit.MimeTypeMap
+import android.webkit.URLUtil
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebChromeClient.FileChooserParams
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.FrameLayout
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.net.toUri
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
-import androidx.core.net.toUri
-import android.graphics.Color
-import android.view.ViewGroup
-import android.widget.FrameLayout
 
 class MainActivity : ComponentActivity() {
     private lateinit var webView: WebView
@@ -37,6 +42,38 @@ class MainActivity : ComponentActivity() {
         registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
             deliverFileChooserResult(uris.takeIf { it.isNotEmpty() }?.toTypedArray())
         }
+
+    private val downloadManager: DownloadManager by lazy {
+        getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+    }
+
+    private fun startDownload(
+        url: String,
+        userAgent: String,
+        contentDisposition: String,
+        mimeType: String
+    ) {
+        try {
+            val request = DownloadManager.Request(Uri.parse(url))
+                .setMimeType(mimeType)
+                .addRequestHeader("User-Agent", userAgent)
+                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                .setDestinationInExternalPublicDir(
+                    Environment.DIRECTORY_DOWNLOADS,
+                    URLUtil.guessFileName(url, contentDisposition, mimeType)
+                )
+
+            // Attach the login cookie so downloads of private files work too.
+            CookieManager.getInstance().getCookie(url)?.let { cookie ->
+                if (cookie.isNotEmpty()) request.addRequestHeader("Cookie", cookie)
+            }
+
+            downloadManager.enqueue(request)
+            Toast.makeText(this, R.string.download_started, Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            Toast.makeText(this, R.string.download_failed, Toast.LENGTH_SHORT).show()
+        }
+    }
 
     private fun deliverFileChooserResult(uris: Array<Uri>?) {
         filePathCallback?.onReceiveValue(uris)
@@ -105,6 +142,10 @@ class MainActivity : ComponentActivity() {
                 startActivity(Intent(Intent.ACTION_VIEW, request.url))
                 return true
             }
+        }
+
+        webView.setDownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
+            startDownload(url, userAgent, contentDisposition, mimeType)
         }
 
         webView.webChromeClient = object : WebChromeClient() {
