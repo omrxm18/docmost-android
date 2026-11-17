@@ -1,6 +1,9 @@
 package com.omrxm18.docmost
 
+import android.app.AlertDialog
 import android.app.DownloadManager
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
@@ -23,6 +26,8 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Button
 import android.widget.FrameLayout
+import android.widget.ScrollView
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
@@ -97,6 +102,28 @@ class MainActivity : ComponentActivity() {
         webView.isVisible = !show
         swipeRefresh.isEnabled = !show
         if (show) swipeRefresh.isRefreshing = false
+    }
+
+    private fun handleShareIntent() {
+        if (intent.action != Intent.ACTION_SEND || intent.type != "text/plain") return
+        val text = intent.getStringExtra(Intent.EXTRA_TEXT)?.trim().takeUnless { it.isNullOrEmpty() }
+            ?: return
+
+        val preview = TextView(this).apply {
+            this.text = text
+            setTextIsSelectable(true)
+            setPadding(24, 0, 24, 0)
+        }
+        AlertDialog.Builder(this)
+            .setTitle(R.string.shared_content_title)
+            .setView(ScrollView(this).apply { addView(preview) })
+            .setPositiveButton(R.string.copy) { _, _ ->
+                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.setPrimaryClip(ClipData.newPlainText(getString(R.string.app_name), text))
+                Toast.makeText(this, R.string.copied, Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
     }
 
     /** WebView reports extensions like ".pdf" as well as MIME types; the document pickers need MIME types. */
@@ -248,9 +275,16 @@ class MainActivity : ComponentActivity() {
 
         if (savedInstanceState == null) {
             webView.loadUrl(startUrl)
+            handleShareIntent()
         } else {
             webView.restoreState(savedInstanceState)
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleShareIntent()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {

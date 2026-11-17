@@ -5,4 +5,7 @@
     <string name="offline_title">Can’t reach Docmost</string>
     <string name="offline_message">Check your connection or the server address, then try again.</string>
     <string name="retry">Retry</string>
+    <string name="shared_content_title">Shared with Docmost</string>
+    <string name="copy">Copy</string>
+    <string name="copied">Copied to clipboard</string>
 </resources>
