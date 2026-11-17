@@ -1,5 +1,6 @@
 package com.omrxm18.docmost
 
+import android.Manifest
 import android.app.AlertDialog
 import android.app.DownloadManager
 import android.content.ClipData
@@ -15,6 +16,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.MimeTypeMap
+import android.webkit.PermissionRequest
 import android.webkit.URLUtil
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
@@ -35,12 +37,15 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.core.net.toUri
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
-import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.isVisible
 import androidx.fragment.app.FragmentActivity
+import java.io.File
+import java.util.UUID
 
 class MainActivity : FragmentActivity() {
     private lateinit var webView: WebView
@@ -56,6 +61,29 @@ class MainActivity : FragmentActivity() {
     }
 
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
+    private var captureUri: Uri? = null
+    private var pendingPermissionRequest: PermissionRequest? = null
+
+    private val takePictureLauncher =
+        registerForActivityResult(ActivityResultContracts.TakePicture()) { success ->
+            val uri = captureUri
+            captureUri = null
+            deliverFileChooserResult(if (success && uri != null) arrayOf(uri) else null)
+        }
+
+    private val permissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
+            val request = pendingPermissionRequest ?: return@registerForActivityResult
+            pendingPermissionRequest = null
+            val granted = mutableListOf<String>()
+            if (results[Manifest.permission.CAMERA] == true) {
+                granted += PermissionRequest.RESOURCE_VIDEO_CAPTURE
+            }
+            if (results[Manifest.permission.RECORD_AUDIO] == true) {
+                granted += PermissionRequest.RESOURCE_AUDIO_CAPTURE
+            }
+            if (granted.isEmpty()) request.deny() else request.grant(granted.toTypedArray())
+        }
 
     private val openDocumentLauncher: ActivityResultLauncher<Array<String>> =
         registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -102,6 +130,31 @@ class MainActivity : FragmentActivity() {
     private fun deliverFileChooserResult(uris: Array<Uri>?) {
         filePathCallback?.onReceiveValue(uris)
         filePathCallback = null
+    }
+
+    private fun launchCameraCapture() {
+        val file = File(cacheDir, "camera/${UUID.randomUUID()}.jpg")
+        file.parentFile?.mkdirs()
+        val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+        captureUri = uri
+        takePictureLauncher.launch(uri)
+    }
+
+    private fun requestWebPermissions(request: PermissionRequest) {
+        val needed = mutableListOf<String>()
+        if (request.resources.contains(PermissionRequest.RESOURCE_VIDEO_CAPTURE)) {
+            needed += Manifest.permission.CAMERA
+        }
+        if (request.resources.contains(PermissionRequest.RESOURCE_AUDIO_CAPTURE)) {
+            needed += Manifest.permission.RECORD_AUDIO
+        }
+        if (needed.isEmpty()) {
+            request.deny()
+            return
+        }
+        pendingPermissionRequest?.deny()
+        pendingPermissionRequest = request
+        permissionLauncher.launch(needed.toTypedArray())
     }
 
     private fun showError(show: Boolean) {
@@ -309,13 +362,26 @@ class MainActivity : FragmentActivity() {
                 this@MainActivity.filePathCallback?.onReceiveValue(null)
                 this@MainActivity.filePathCallback = filePathCallback
 
-                val types = acceptTypes(fileChooserParams)
-                if (fileChooserParams.mode == FileChooserParams.MODE_OPEN_MULTIPLE) {
-                    openMultipleDocumentsLauncher.launch(types)
-                } else {
-                    openDocumentLauncher.launch(types)
+                val imageCapture = fileChooserParams.isCaptureEnabled &&
+                        (fileChooserParams.acceptTypes.isEmpty() ||
+                                fileChooserParams.acceptTypes.any {
+                                    it == "*/*" || it.startsWith("image/")
+                                })
+                when {
+                    imageCapture -> launchCameraCapture()
+                    fileChooserParams.mode == FileChooserParams.MODE_OPEN_MULTIPLE ->
+                        openMultipleDocumentsLauncher.launch(acceptTypes(fileChooserParams))
+                    else -> openDocumentLauncher.launch(acceptTypes(fileChooserParams))
                 }
                 return true
+            }
+
+            override fun onPermissionRequest(request: PermissionRequest) {
+                requestWebPermissions(request)
+            }
+
+            override fun onPermissionRequestCanceled(request: PermissionRequest) {
+                if (pendingPermissionRequest == request) pendingPermissionRequest = null
             }
         }
 
