@@ -12,6 +12,8 @@ import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
 import android.os.Environment
+import android.text.InputType
+import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.CookieManager
@@ -27,7 +29,9 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Button
+import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.ImageButton
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
@@ -52,12 +56,54 @@ class MainActivity : FragmentActivity() {
     private lateinit var errorView: View
     private lateinit var lockView: View
     private lateinit var swipeRefresh: WebViewSwipeRefreshLayout
-    private val startUrl = BuildConfig.DOCMOST_URL
+    private lateinit var settingsButton: ImageButton
+    private lateinit var startUrl: String
+    private var serverHost: String? = null
     private var locked = true
+    private val prefs by lazy { AppPreferences(this) }
 
     companion object {
         private const val KEY_ERROR_VISIBLE = "error_visible"
         private const val KEY_LOCKED = "locked"
+    }
+
+    private fun applyServerUrl(url: String) {
+        startUrl = url
+        serverHost = url.toUri().host
+    }
+
+    private fun showSettingsDialog() {
+        val input = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
+            setText(startUrl)
+            setSelection(text.length)
+            setPadding(24, 0, 24, 0)
+        }
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(R.string.settings)
+            .setView(input)
+            .setPositiveButton(R.string.save, null)
+            .setNegativeButton(android.R.string.cancel, null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val url = input.text.toString().trim().trimEnd('/')
+                when {
+                    url.isBlank() -> input.error = getString(R.string.url_required)
+                    !url.startsWith("http://") && !url.startsWith("https://") ->
+                        input.error = getString(R.string.url_invalid)
+                    else -> {
+                        prefs.serverUrl = url
+                        applyServerUrl(url)
+                        showError(false)
+                        webView.loadUrl(url)
+                        Toast.makeText(this, R.string.settings_saved, Toast.LENGTH_SHORT).show()
+                        dialog.dismiss()
+                    }
+                }
+            }
+        }
+        dialog.show()
     }
 
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
@@ -167,11 +213,13 @@ class MainActivity : FragmentActivity() {
     private fun lock() {
         locked = true
         lockView.isVisible = true
+        settingsButton.isVisible = false
     }
 
     private fun unlock() {
         locked = false
         lockView.isVisible = false
+        settingsButton.isVisible = true
     }
 
     private fun promptBiometric() {
@@ -243,6 +291,11 @@ class MainActivity : FragmentActivity() {
         installSplashScreen()
         super.onCreate(savedInstanceState)
 
+        val savedUrl = prefs.serverUrl
+        val initialUrl = savedUrl?.takeIf { it.isNotBlank() } ?: BuildConfig.DOCMOST_URL
+        if (savedUrl != initialUrl) prefs.serverUrl = initialUrl
+        applyServerUrl(initialUrl)
+
         webView = WebView(this)
         swipeRefresh = WebViewSwipeRefreshLayout(this).apply {
             webView = this@MainActivity.webView
@@ -263,6 +316,13 @@ class MainActivity : FragmentActivity() {
         lockView = layoutInflater.inflate(R.layout.lock_view, null, false)
         lockView.findViewById<Button>(R.id.unlock_button).setOnClickListener {
             promptBiometric()
+        }
+        settingsButton = ImageButton(this).apply {
+            setImageResource(android.R.drawable.ic_menu_manage)
+            contentDescription = getString(R.string.open_settings)
+            setBackgroundColor(Color.TRANSPARENT)
+            alpha = 0.7f
+            setOnClickListener { showSettingsDialog() }
         }
 
         val container = FrameLayout(this).apply {
@@ -288,11 +348,18 @@ class MainActivity : FragmentActivity() {
                     ViewGroup.LayoutParams.MATCH_PARENT
                 )
             )
+            addView(
+                settingsButton,
+                FrameLayout.LayoutParams(48, 48, Gravity.TOP or Gravity.END).apply {
+                    setMargins(4, 4, 4, 4)
+                }
+            )
         }
         setContentView(container)
         showError(savedInstanceState?.getBoolean(KEY_ERROR_VISIBLE, false) ?: false)
         locked = savedInstanceState?.getBoolean(KEY_LOCKED, true) ?: true
         lockView.isVisible = locked
+        settingsButton.isVisible = !locked
 
         ViewCompat.setOnApplyWindowInsetsListener(container) { v, insets ->
             val bars = insets.getInsets(
@@ -311,14 +378,13 @@ class MainActivity : FragmentActivity() {
         }
         CookieManager.getInstance().setAcceptCookie(true)
 
-        val host = startUrl.toUri().host
         webView.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(
                 view: WebView,
                 request: WebResourceRequest
             ): Boolean {
                 // Keep Docmost inside the app, send other sites to the browser
-                if (request.url.host == host) return false
+                if (request.url.host == serverHost) return false
                 startActivity(Intent(Intent.ACTION_VIEW, request.url))
                 return true
             }
