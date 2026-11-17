@@ -2,4 +2,10 @@
 <resources>
 
     <style name="Theme.Docmost" parent="android:Theme.Material.Light.NoActionBar" />
+
+    <style name="Theme.Docmost.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+        <item name="windowSplashScreenBackground">@color/white</item>
+        <item name="postSplashScreenTheme">@style/Theme.Docmost</item>
+    </style>
 </resources>
